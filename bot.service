@@ -1,0 +1,21 @@
+[Unit]
+Description=Bot envio alerta info orden fecha levante
+After=network.target
+
+[Service]
+Type=simple
+
+User=root
+Group=root
+
+WorkingDirectory=/ruta/al/proyecto/bot_envio_alerta_info_orden_fecha_levante
+
+EnvironmentFile=/ruta/al/proyecto/bot_envio_alerta_info_orden_fecha_levante/.env
+
+ExecStart=/ruta/al/proyecto/bot_envio_alerta_info_orden_fecha_levante/run.sh
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
