@@ -24,10 +24,19 @@ def parse_args():
     return parser.parse_args()
 
 
+DIAS_SEMANA = ("monday", "tuesday", "wednesday", "thursday", "friday")
+
+
 def programar_ejecucion_diaria():
-    schedule.every().day.at(config.HORA_EJECUCION).do(procesar_ordenes)
+    for dia in DIAS_SEMANA:
+        for hora in config.HORARIOS_SEMANA:
+            getattr(schedule.every(), dia).at(hora).do(procesar_ordenes)
+    for hora in config.HORARIOS_SABADO:
+        schedule.every().saturday.at(hora).do(procesar_ordenes)
     logger.info(
-        "Ejecución diaria programada a las %s.", config.HORA_EJECUCION
+        "Ejecución programada: lunes a viernes %s, sábados %s, domingos sin envíos.",
+        ", ".join(config.HORARIOS_SEMANA),
+        ", ".join(config.HORARIOS_SABADO),
     )
 
 
