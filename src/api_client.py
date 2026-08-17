@@ -2,6 +2,7 @@ from datetime import datetime
 from html import escape
 
 from src.config import config
+from src.email_service import enviar_correo_html
 from src.logger import setup_logger
 
 logger = setup_logger()
@@ -314,3 +315,13 @@ def procesar_ordenes():
     #     exitosos,
     #     total,
     # )
+
+    try:
+        html_completo = construir_tabla_html(ordenes)
+        enviar_correo_html(TITULO_MENSAJE, html_completo, config.EMAIL_DESTINOS)
+        logger.info(
+            "Correo con el listado completo enviado a %s.",
+            ", ".join(config.EMAIL_DESTINOS),
+        )
+    except Exception as exc:
+        logger.error("Error enviando el correo con el listado completo: %s", exc)

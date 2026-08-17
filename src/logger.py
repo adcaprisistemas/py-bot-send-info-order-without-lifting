@@ -6,6 +6,10 @@ from src.config import BASE_DIR
 
 
 def setup_logger() -> logging.Logger:
+    logger = logging.getLogger("bot")
+    if logger.handlers:
+        return logger
+
     logs_dir = BASE_DIR / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
 
