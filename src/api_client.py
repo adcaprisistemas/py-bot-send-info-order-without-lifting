@@ -67,11 +67,31 @@ def agrupar_ordenes(ordenes):
             }
         sectoristas[sectorista]["ordenes"].append(orden)
 
+    todos_sectoristas = set()
+    for orden in ordenes:
+        s = orden.get("COD_USU_SECTORISTA")
+        if s is not None:
+            todos_sectoristas.add(str(s))
+
+    apertura_usuarios = {}
+    for orden in ordenes:
+        apertura = str(orden.get("COD_USU_APERTURA") or "").strip()
+        if not apertura:
+            continue
+        if apertura in todos_sectoristas:
+            continue
+        if apertura not in apertura_usuarios:
+            apertura_usuarios[apertura] = {
+                "COD_USU_APERTURA": apertura,
+                "ordenes": [],
+            }
+        apertura_usuarios[apertura]["ordenes"].append(orden)
+
     resultado = []
     for grupo_jefe in jefes.values():
         grupo_jefe["sectoristas"] = list(grupo_jefe["sectoristas"].values())
         resultado.append(grupo_jefe)
-    return resultado
+    return resultado, list(apertura_usuarios.values())
 
 
 
@@ -284,6 +304,26 @@ def enviar_por_trabajador(session, agrupado):
     return exitosos, total
 
 
+def enviar_por_apertura(session, apertura_usuarios):
+    exitosos = 0
+    for usuario in apertura_usuarios:
+        # codigo = usuario["COD_USU_APERTURA"]
+        codigo = 3
+        try:
+            enviar_cuerpo(session, [codigo], usuario["ordenes"])
+            exitosos += 1
+            logger.info(
+                "Tabla enviada al usuario apertura %s con %d órdenes.",
+                codigo,
+                len(usuario["ordenes"]),
+            )
+        except Exception as exc:
+            logger.error(
+                "Error enviando tabla al usuario apertura %s: %s", codigo, exc
+            )
+    return exitosos, len(apertura_usuarios)
+
+
 def procesar_ordenes():
     session = get_session()
 
@@ -303,8 +343,9 @@ def procesar_ordenes():
 
     logger.info("Se obtuvieron %d órdenes para procesar.", len(ordenes))
 
-    agrupado = agrupar_ordenes(ordenes)
+    agrupado, apertura = agrupar_ordenes(ordenes)
     logger.info("Órdenes agrupadas por jefe y sectorista: %s", agrupado)
+    logger.info("Usuarios apertura detectados: %d", len(apertura))
 
     exitosos, total = enviar_por_jefe(session, agrupado)
     logger.info("Ronda 1 (jefes) finalizada: %d de %d tablas enviadas.", exitosos, total)
@@ -316,12 +357,19 @@ def procesar_ordenes():
     #     total,
     # )
 
-    try:
-        html_completo = construir_tabla_html(ordenes)
-        enviar_correo_html(TITULO_MENSAJE, html_completo, config.EMAIL_DESTINOS)
-        logger.info(
-            "Correo con el listado completo enviado a %s.",
-            ", ".join(config.EMAIL_DESTINOS),
-        )
-    except Exception as exc:
-        logger.error("Error enviando el correo con el listado completo: %s", exc)
+    exitosos_a, total_a = enviar_por_apertura(session, apertura)
+    logger.info(
+        "Ronda 3 (apertura) finalizada: %d de %d tablas enviadas.",
+        exitosos_a,
+        total_a,
+    )
+
+    # try:
+    #     html_completo = construir_tabla_html(ordenes)
+    #     enviar_correo_html(TITULO_MENSAJE, html_completo, config.EMAIL_DESTINOS)
+    #     logger.info(
+    #         "Correo con el listado completo enviado a %s.",
+    #         ", ".join(config.EMAIL_DESTINOS),
+    #     )
+    # except Exception as exc:
+    #     logger.error("Error enviando el correo con el listado completo: %s", exc)
