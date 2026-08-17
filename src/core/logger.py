@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.config import BASE_DIR
+from src.core.config import BASE_DIR
 
 
 def setup_logger() -> logging.Logger:

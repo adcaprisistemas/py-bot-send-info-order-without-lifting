@@ -1,25 +1,41 @@
 # bot_envio_alerta_info_orden_fecha_levante
 
-Bot Python 3.12 que todos los días, a una hora definida, consulta una URL (GET) de una API para obtener órdenes y envía cada una de ellas mediante POST a otra ruta.
+Bot Python 3.12 con arquitectura modular. Cada alerta es un módulo autocontenido bajo `src/alerts/` y se descubre automáticamente. El bot orquesta todos los módulos desde un único entrypoint (`main.py`).
 
 ## Estructura del proyecto
 
 ```text
 bot_envio_alerta_info_orden_fecha_levante/
-├── main.py              # entrypoint: programación diaria y señales
-├── src/                 # resto del código fuente
-│   ├── __init__.py
-│   ├── config.py        # carga de configuración desde .env
-│   ├── logger.py        # logging a consola y logs/bot.log
-│   └── api_client.py    # GET de órdenes y POST de cada una (con reintentos)
-├── tests/               # tests con unittest (sin dependencias extra)
-│   └── test_flow.py
-├── logs/                # se crea automáticamente, guarda bot.log
-├── .env                 # configuración y secretos (NO subir al repo)
+├── main.py                                # entrypoint único: orquesta todos los módulos
+├── src/
+│   ├── core/                              # núcleo compartido por todos los módulos
+│   │   ├── __init__.py
+│   │   ├── config.py                      # config global (SMTP, HTTP, logging)
+│   │   ├── logger.py                      # logger base
+│   │   ├── email_service.py               # SMTP genérico
+│   │   ├── http_client.py                 # requests.Session con reintentos
+│   │   └── scheduler.py                   # orquestador de horarios
+│   └── alerts/                            # módulos de alerta (descubrimiento automático)
+│       ├── __init__.py
+│       └── ordenes_sin_levante/           # módulo de órdenes sin levante
+│           ├── __init__.py
+│           ├── config.py                  # config con prefijo LEVANTE_
+│           ├── api_client.py              # GET de órdenes
+│           ├── grouping.py                # agrupación por jefe/sectorista
+│           ├── renderer.py                # tabla HTML
+│           └── module.py                  # run() y schedule()
+├── tests/
+│   ├── core/
+│   │   └── test_discovery.py
+│   └── alerts/
+│       └── ordenes_sin_levante/
+│           └── test_flow.py
+├── logs/                                  # se crea automáticamente, guarda bot.log
+├── .env                                   # configuración y secretos (NO subir al repo)
 ├── .env.example
 ├── requirements.txt
-├── run.sh               # ejecución para Linux
-├── bot.service          # servicio systemd
+├── run.sh                                 # ejecución para Linux
+├── bot.service                            # servicio systemd
 └── README.md
 ```
 
@@ -40,29 +56,62 @@ pip install -r requirements.txt
 
 ## Configuración
 
-Copiar `.env.example` a `.env` y completar los valores:
+Copiar `.env.example` a `.env` y completar los valores. El archivo se divide en dos secciones:
+
+### Globales (compartidas por todos los módulos)
 
 | Variable | Descripción |
 | --- | --- |
-| `API_GET_URL` | URL de la API de la cual se obtienen las órdenes (GET). |
-| `API_POST_URL` | Ruta destino a la cual se envía cada orden (POST). |
-| `API_TOKEN` | Token de autenticación (opcional). Si está vacío no se envía la cabecera `Authorization`. |
-| `HORA_EJECUCION` | Hora de ejecución diaria en formato 24h (`HH:MM`), por ejemplo `06:00`. |
-| `TIMEOUT_SEGUNDOS` | Timeout en segundos para cada petición HTTP. |
-| `MAX_REINTENTOS` | Reintentos por petición ante errores de red o HTTP 429/5xx. |
-| `EJECUTAR_AL_INICIAR` | `true`/`false`: ejecuta un procesamiento inmediato al iniciar el bot. |
+| `LOG_LEVEL` | Nivel de logging (`INFO`, `DEBUG`, etc). |
+| `SMTP_HOST` | Host SMTP para envío de correos. |
+| `SMTP_PORT` | Puerto SMTP (587 por defecto). |
+| `SMTP_USER` | Usuario SMTP. |
+| `SMTP_PASSWORD` | Contraseña SMTP. |
+| `EMAIL_ORIGEN` | Dirección de origen de los correos. |
+| `EMAIL_DESTINO` | Destinatarios por defecto (separados por coma). |
+| `TIMEOUT_SEGUNDOS` | Timeout HTTP en segundos. |
+| `MAX_REINTENTOS` | Reintentos HTTP ante errores 5xx/429. |
+| `EJECUTAR_AL_INICIAR` | `true`/`false`: ejecuta todos los módulos al iniciar. |
 
-Nunca subir `.env` al repositorio. El archivo `.env.example` no debe contener secretos reales.
+### Por módulo (prefijo del módulo)
+
+Todas las variables del módulo `ordenes_sin_levante` usan el prefijo `LEVANTE_`:
+
+| Variable | Descripción |
+| --- | --- |
+| `LEVANTE_API_GET_URL` | URL de la API para obtener órdenes. |
+| `LEVANTE_API_POST_URL` | URL destino para enviar cada tabla. |
+| `LEVANTE_API_TOKEN` | Token Bearer (opcional). |
+| `LEVANTE_TITULO_MENSAJE` | Título del mensaje enviado por la API. |
+| `LEVANTE_USER_ID` | ID de usuario emisor. |
+| `LEVANTE_USUARIOS_ADICIONALES_JEFE` | IDs adicionales para notificar al jefe. |
+| `LEVANTE_HORARIOS_SEMANA` | Horarios lunes a viernes (`HH:MM` separadas por coma). |
+| `LEVANTE_HORARIOS_SABADO` | Horarios sábados. |
+| `LEVANTE_HORARIOS_DOMINGO` | Horarios domingos (vacío por defecto). |
+
+Nunca subir `.env` al repositorio.
 
 ## Ejecución manual
 
-Ejecutar un único procesamiento y terminar:
+Listar módulos detectados:
+
+```bash
+python3 main.py --list
+```
+
+Ejecutar todos los módulos una vez y terminar:
 
 ```bash
 python3 main.py --now
 ```
 
-Ejecutar el bot de forma continua (procesa a la hora definida):
+Ejecutar un módulo específico:
+
+```bash
+python3 main.py --now ordenes_sin_levante
+```
+
+Ejecutar el bot de forma continua (procesa a las horas definidas):
 
 ```bash
 ./run.sh
@@ -75,6 +124,41 @@ Detener con `Ctrl+C` (SIGINT) o `SIGTERM`.
 ```bash
 python3 -m unittest discover tests
 ```
+
+## Cómo agregar un nuevo módulo de alerta
+
+No se toca `main.py`. Solo crear una carpeta bajo `src/alerts/`:
+
+```
+src/alerts/mi_nueva_alerta/
+├── __init__.py
+├── config.py        # module_config con prefijo propio
+├── ...              # lógica específica
+└── module.py        # expone run() y schedule()
+```
+
+El `module.py` debe exponer dos funciones:
+
+```python
+# src/alerts/mi_nueva_alerta/module.py
+def run() -> dict:
+    """Ejecuta el procesamiento. Retorna métricas: {exitosos, total, errores}."""
+    ...
+
+def schedule() -> list:
+    """Declara los horarios. Cada item debe ser un Job(day, time)."""
+    from src.core.scheduler import Job
+    return [Job("monday", "08:00"), Job("wednesday", "08:00")]
+```
+
+Y agregar sus variables al `.env` con su prefijo propio:
+
+```
+MI_NUEVA_ALERTA_API_GET_URL=https://...
+MI_NUEVA_ALERTA_HORARIOS_SEMANA=08:00
+```
+
+Al iniciar el bot, el módulo se descubre automáticamente.
 
 ## systemd
 
@@ -97,6 +181,7 @@ sudo systemctl status bot.service
 
 ```bash
 sudo journalctl -u bot.service -f
+tail -f logs/bot.log
 ```
 
 ## Reinicio
@@ -113,11 +198,11 @@ sudo systemctl stop bot.service
 
 ## Comportamiento y robustez
 
-- El bot permanece en ejecución y programa la tarea diaria a la hora indicada.
-- Cada petición GET/POST cuenta con timeouts y reintentos limitados.
-- Si una orden individual falla al enviarse, se registra el error y se continúa con la siguiente.
-- El servicio systemd usa `Restart=always` para levantarse automáticamente si se cae o si la máquina se reinicia.
-- Los errores nunca se ocultan: se registran en `logs/bot.log` y en la salida estándar.
+- El bot permanece en ejecución y programa cada módulo a sus horarios.
+- Cada petición HTTP usa timeouts y reintentos limitados.
+- Si una orden falla al enviarse, se registra el error y se continúa.
+- El servicio systemd usa `Restart=always`.
+- Los errores nunca se ocultan: se registran en `logs/bot.log` y stdout.
 
 ## Troubleshooting
 
@@ -125,7 +210,8 @@ sudo systemctl stop bot.service
 - Dependencias faltantes: volver a ejecutar `pip install -r requirements.txt`.
 - Rutas incorrectas: ajustar `WorkingDirectory` y `ExecStart` en `bot.service`.
 - Proceso detenido: revisar `sudo journalctl -u bot.service -e` y `logs/bot.log`.
-- Errores HTTP en el envío: verificar `API_POST_URL`, `API_TOKEN` y el formato esperado por el endpoint.
+- Errores HTTP: verificar las URLs y el token del módulo correspondiente.
+- Módulo no detectado: verificar que exista `module.py` con `run()` y `schedule()`.
 
 ## Estado de validación
 

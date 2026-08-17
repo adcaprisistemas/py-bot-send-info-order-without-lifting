@@ -2,13 +2,15 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-from src.config import config
-from src.logger import setup_logger
+from src.core.config import config
+from src.core.logger import setup_logger
 
 logger = setup_logger()
 
 
 def enviar_correo_html(asunto, html, destinatarios):
+    if not destinatarios:
+        return
     msg = EmailMessage()
     msg["Subject"] = asunto
     msg["From"] = config.EMAIL_ORIGEN
