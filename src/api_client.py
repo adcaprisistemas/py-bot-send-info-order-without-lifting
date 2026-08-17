@@ -57,12 +57,13 @@ def agrupar_ordenes(ordenes):
         jefe = orden.get("COD_USU_JEFE")
         sectorista = orden.get("COD_USU_SECTORISTA")
         grupo_jefe = jefes.setdefault(
-            jefe, {"COD_USU_JEFE": jefe, "sectoristas": {}}
+            jefe, {"COD_USU_JEFE": jefe, "CORREO_JEFE": orden.get("CORREO_JEFE", ""), "sectoristas": {}}
         )
         sectoristas = grupo_jefe["sectoristas"]
         if sectorista not in sectoristas:
             sectoristas[sectorista] = {
                 "COD_USU_SECTORISTA": sectorista,
+                "CORREO_SECTORISTA": orden.get("CORREO_SECTORISTA", ""),
                 "ordenes": [],
             }
         sectoristas[sectorista]["ordenes"].append(orden)
@@ -83,6 +84,7 @@ def agrupar_ordenes(ordenes):
         if apertura not in apertura_usuarios:
             apertura_usuarios[apertura] = {
                 "COD_USU_APERTURA": apertura,
+                "CORREO_USU_APERTURA": orden.get("CORREO_USU_APERTURA", ""),
                 "ordenes": [],
             }
         apertura_usuarios[apertura]["ordenes"].append(orden)
@@ -242,7 +244,7 @@ def construir_tabla_html(ordenes):
     )
 
 
-TITULO_MENSAJE = "ORDENES DE DEPOSITO SIN LEVANTE AUTORIZADO (NO SE ENCUENTRAN LEGAJADAS O EN ABANDONO LEGAL)"
+TITULO_MENSAJE = "PRUEBA DE SISTEMAS - ORDENES DE DEPOSITO SIN LEVANTE AUTORIZADO (NO SE ENCUENTRAN LEGAJADAS O EN ABANDONO LEGAL)"
 USER_ID = "1"
 # USUARIOS_ADICIONALES_JEFE = [3, 887]
 USUARIOS_ADICIONALES_JEFE = []
@@ -265,16 +267,27 @@ def enviar_cuerpo(session, target_user_ids, ordenes):
     return response
 
 
+def enviar_correo_a_usuario(correo, ordenes):
+    if not correo:
+        return
+    destinatarios = [e.strip() for e in str(correo).split(",") if e.strip()]
+    if not destinatarios:
+        return
+    html = construir_tabla_html(ordenes)
+    enviar_correo_html(TITULO_MENSAJE, html, destinatarios)
+
+
 def enviar_por_jefe(session, agrupado):
     exitosos = 0
     for grupo in agrupado:
-        # jefe = grupo["COD_USU_JEFE"]
-        jefe = 3
+        jefe = grupo["COD_USU_JEFE"]
+        correo = grupo["CORREO_JEFE"]
         ordenes = []
         for sectorista in grupo["sectoristas"]:
             ordenes.extend(sectorista["ordenes"])
         try:
             enviar_cuerpo(session, [jefe] + USUARIOS_ADICIONALES_JEFE, ordenes)
+            enviar_correo_a_usuario(correo, ordenes)
             exitosos += 1
             logger.info(
                 "Tabla enviada al jefe %s con %d órdenes.", jefe, len(ordenes)
@@ -291,8 +304,10 @@ def enviar_por_trabajador(session, agrupado):
         for sectorista in grupo["sectoristas"]:
             total += 1
             codigo = sectorista["COD_USU_SECTORISTA"]
+            correo = sectorista["CORREO_SECTORISTA"]
             try:
                 enviar_cuerpo(session, [codigo], sectorista["ordenes"])
+                enviar_correo_a_usuario(correo, sectorista["ordenes"])
                 exitosos += 1
                 logger.info(
                     "Tabla enviada al trabajador %s con %d órdenes.",
@@ -307,10 +322,11 @@ def enviar_por_trabajador(session, agrupado):
 def enviar_por_apertura(session, apertura_usuarios):
     exitosos = 0
     for usuario in apertura_usuarios:
-        # codigo = usuario["COD_USU_APERTURA"]
-        codigo = 3
+        codigo = usuario["COD_USU_APERTURA"]
+        correo = usuario["CORREO_USU_APERTURA"]
         try:
             enviar_cuerpo(session, [codigo], usuario["ordenes"])
+            enviar_correo_a_usuario(correo, usuario["ordenes"])
             exitosos += 1
             logger.info(
                 "Tabla enviada al usuario apertura %s con %d órdenes.",
@@ -350,12 +366,12 @@ def procesar_ordenes():
     exitosos, total = enviar_por_jefe(session, agrupado)
     logger.info("Ronda 1 (jefes) finalizada: %d de %d tablas enviadas.", exitosos, total)
 
-    # exitosos, total = enviar_por_trabajador(session, agrupado)
-    # logger.info(
-    #     "Ronda 2 (trabajadores) finalizada: %d de %d tablas enviadas.",
-    #     exitosos,
-    #     total,
-    # )
+    exitosos, total = enviar_por_trabajador(session, agrupado)
+    logger.info(
+        "Ronda 2 (trabajadores) finalizada: %d de %d tablas enviadas.",
+        exitosos,
+        total,
+    )
 
     exitosos_a, total_a = enviar_por_apertura(session, apertura)
     logger.info(
@@ -363,13 +379,3 @@ def procesar_ordenes():
         exitosos_a,
         total_a,
     )
-
-    # try:
-    #     html_completo = construir_tabla_html(ordenes)
-    #     enviar_correo_html(TITULO_MENSAJE, html_completo, config.EMAIL_DESTINOS)
-    #     logger.info(
-    #         "Correo con el listado completo enviado a %s.",
-    #         ", ".join(config.EMAIL_DESTINOS),
-    #     )
-    # except Exception as exc:
-    #     logger.error("Error enviando el correo con el listado completo: %s", exc)

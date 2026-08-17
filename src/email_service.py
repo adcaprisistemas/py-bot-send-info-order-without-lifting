@@ -9,7 +9,6 @@ logger = setup_logger()
 
 
 def enviar_correo_html(asunto, html, destinatarios):
-    print(", ".join(destinatarios))
     msg = EmailMessage()
     msg["Subject"] = asunto
     msg["From"] = config.EMAIL_ORIGEN
