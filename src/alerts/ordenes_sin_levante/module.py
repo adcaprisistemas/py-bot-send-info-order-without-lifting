@@ -91,7 +91,7 @@ def enviar_correo_a_usuario(correo, ordenes):
     enviar_correo_html(module_config.TITULO_MENSAJE, html, destinatarios)
 
 
-def enviar_por_jefe(session, agrupado):
+def enviar_por_jefe(session, agrupado, enviar_correo=True):
     adicionales = _to_int_list(module_config.USUARIOS_ADICIONALES_JEFE)
     exitosos = 0
     for grupo in agrupado:
@@ -102,7 +102,8 @@ def enviar_por_jefe(session, agrupado):
             ordenes.extend(sectorista["ordenes"])
         try:
             enviar_cuerpo(session, [jefe] + adicionales, ordenes)
-            enviar_correo_a_usuario(correo, ordenes)
+            if enviar_correo:
+                enviar_correo_a_usuario(correo, ordenes)
             exitosos += 1
             logger.info(
                 "Tabla enviada al jefe %s con %d órdenes.", jefe, len(ordenes)
@@ -112,7 +113,12 @@ def enviar_por_jefe(session, agrupado):
     return exitosos, len(agrupado)
 
 
-def enviar_por_sectorista(session, agrupado):
+SECTORISTA_ESPECIAL_CODIGO = 48
+SECTORISTA_ESPECIAL_CODIGO_EXTRA = 856
+SECTORISTA_ESPECIAL_CORREO_EXTRA = "gzuniga@adcapricornio.com"
+
+
+def enviar_por_sectorista(session, agrupado, enviar_correo=True):
     exitosos = 0
     total = 0
     for grupo in agrupado:
@@ -121,8 +127,22 @@ def enviar_por_sectorista(session, agrupado):
             codigo = sectorista["COD_USU_SECTORISTA"]
             correo = sectorista["CORREO_SECTORISTA"]
             try:
-                enviar_cuerpo(session, [codigo], sectorista["ordenes"])
-                enviar_correo_a_usuario(correo, sectorista["ordenes"])
+                target_users = [codigo]
+                destinatarios_correo = [e.strip() for e in str(correo).split(",") if e.strip()]
+                if codigo == SECTORISTA_ESPECIAL_CODIGO:
+                    target_users.append(SECTORISTA_ESPECIAL_CODIGO_EXTRA)
+                    if SECTORISTA_ESPECIAL_CORREO_EXTRA not in destinatarios_correo:
+                        destinatarios_correo.append(SECTORISTA_ESPECIAL_CORREO_EXTRA)
+                    logger.info(
+                        "Sectorista %s detectado: agregado código %s y correo %s como destinatarios extra.",
+                        codigo,
+                        SECTORISTA_ESPECIAL_CODIGO_EXTRA,
+                        SECTORISTA_ESPECIAL_CORREO_EXTRA,
+                    )
+                enviar_cuerpo(session, target_users, sectorista["ordenes"])
+                if enviar_correo and destinatarios_correo:
+                    html = construir_tabla_html(sectorista["ordenes"])
+                    enviar_correo_html(module_config.TITULO_MENSAJE, html, destinatarios_correo)
                 exitosos += 1
                 logger.info(
                     "Tabla enviada al sectorista %s con %d órdenes.",
@@ -136,14 +156,15 @@ def enviar_por_sectorista(session, agrupado):
     return exitosos, total
 
 
-def enviar_por_apertura(session, apertura_usuarios):
+def enviar_por_apertura(session, apertura_usuarios, enviar_correo=True):
     exitosos = 0
     for usuario in apertura_usuarios:
         codigo = usuario["COD_USU_APERTURA"]
         correo = usuario["CORREO_USU_APERTURA"]
         try:
             enviar_cuerpo(session, [codigo], usuario["ordenes"])
-            enviar_correo_a_usuario(correo, usuario["ordenes"])
+            if enviar_correo:
+                enviar_correo_a_usuario(correo, usuario["ordenes"])
             exitosos += 1
             logger.info(
                 "Tabla enviada al usuario apertura %s con %d órdenes.",
@@ -157,7 +178,7 @@ def enviar_por_apertura(session, apertura_usuarios):
     return exitosos, len(apertura_usuarios)
 
 
-def run() -> dict:
+def run(enviar_correo=True) -> dict:
     session = get_session()
     metricas = {"exitosos": 0, "total": 0, "errores": 0}
 
@@ -179,24 +200,23 @@ def run() -> dict:
     logger.info("Se obtuvieron %d órdenes para procesar.", len(ordenes))
 
     agrupado, apertura = agrupar_ordenes(ordenes)
-    logger.info("Órdenes agrupadas por jefe y sectorista: %s", agrupado)
     logger.info("Usuarios apertura detectados: %d", len(apertura))
 
-    exitosos_j, total_j = enviar_por_jefe(session, agrupado)
+    exitosos_j, total_j = enviar_por_jefe(session, agrupado, enviar_correo)
     logger.info(
         "Ronda 1 (jefes) finalizada: %d de %d tablas enviadas.",
         exitosos_j,
         total_j,
     )
 
-    exitosos_s, total_s = enviar_por_sectorista(session, agrupado)
+    exitosos_s, total_s = enviar_por_sectorista(session, agrupado, enviar_correo)
     logger.info(
         "Ronda 2 (sectoristas) finalizada: %d de %d tablas enviadas.",
         exitosos_s,
         total_s,
     )
 
-    exitosos_a, total_a = enviar_por_apertura(session, apertura)
+    exitosos_a, total_a = enviar_por_apertura(session, apertura, enviar_correo)
     logger.info(
         "Ronda 3 (apertura) finalizada: %d de %d tablas enviadas.",
         exitosos_a,
@@ -214,15 +234,28 @@ def run() -> dict:
 DIAS_SEMANA = ("monday", "tuesday", "wednesday", "thursday", "friday")
 
 
+def _emparejar_correo(horarios, flags):
+    resultado = []
+    for i, hora in enumerate(horarios):
+        if i < len(flags):
+            resultado.append(flags[i])
+        else:
+            resultado.append(True)
+    return resultado
+
+
 def schedule():
     from src.core.scheduler import Job
 
     jobs = []
+    correos_semana = _emparejar_correo(module_config.HORARIOS_SEMANA, module_config.HORARIOS_CORREO)
     for dia in DIAS_SEMANA:
-        for hora in module_config.HORARIOS_SEMANA:
-            jobs.append(Job(dia, hora))
-    for hora in module_config.HORARIOS_SABADO:
-        jobs.append(Job("saturday", hora))
-    for hora in module_config.HORARIOS_DOMINGO:
-        jobs.append(Job("sunday", hora))
+        for hora, correo in zip(module_config.HORARIOS_SEMANA, correos_semana):
+            jobs.append(Job(dia, hora, correo))
+    correos_sabado = _emparejar_correo(module_config.HORARIOS_SABADO, module_config.HORARIOS_CORREO_SABADO)
+    for hora, correo in zip(module_config.HORARIOS_SABADO, correos_sabado):
+        jobs.append(Job("saturday", hora, correo))
+    correos_domingo = _emparejar_correo(module_config.HORARIOS_DOMINGO, module_config.HORARIOS_CORREO_DOMINGO)
+    for hora, correo in zip(module_config.HORARIOS_DOMINGO, correos_domingo):
+        jobs.append(Job("sunday", hora, correo))
     return jobs

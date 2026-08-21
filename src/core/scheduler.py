@@ -15,9 +15,12 @@ logger = setup_logger()
 class Job:
     day: str
     time: str
+    enviar_correo: bool = True
 
     def register(self, scheduler, callback):
-        getattr(scheduler.every(), self.day).at(self.time).do(callback)
+        getattr(scheduler.every(), self.day).at(self.time).do(
+            callback, enviar_correo=self.enviar_correo
+        )
 
 
 def programar_todos():

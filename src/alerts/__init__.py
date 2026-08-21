@@ -32,7 +32,7 @@ def discover_alerts():
                 {
                     "name": module_dir.name,
                     "run": run_fn,
-                    "jobs":  (),
+                    "jobs": schedule_fn(),
                 }
             )
         except Exception as exc:
