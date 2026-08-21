@@ -91,8 +91,23 @@ def enviar_correo_a_usuario(correo, ordenes):
     enviar_correo_html(module_config.TITULO_MENSAJE, html, destinatarios)
 
 
+JEFE_ESPECIAL_CODIGO = module_config.JEFE_ESPECIAL_CODIGO
+JEFE_ESPECIAL_CODIGO_EXTRA = module_config.JEFE_ESPECIAL_CODIGO_EXTRA
+JEFE_ESPECIAL_CORREO_EXTRA = module_config.JEFE_ESPECIAL_CORREO_EXTRA
+
+
 def enviar_por_jefe(session, agrupado, enviar_correo=True):
     adicionales = _to_int_list(module_config.USUARIOS_ADICIONALES_JEFE)
+    correos_adicionales = module_config.USUARIOS_ADICIONALES_JEFE_CORREOS
+    if len(adicionales) != len(correos_adicionales):
+        logger.warning(
+            "USUARIOS_ADICIONALES_JEFE tiene %d elementos pero "
+            "USUARIOS_ADICIONALES_JEFE_CORREOS tiene %d. "
+            "Se usaran los primeros %d en pares.",
+            len(adicionales),
+            len(correos_adicionales),
+            min(len(adicionales), len(correos_adicionales)),
+        )
     exitosos = 0
     for grupo in agrupado:
         jefe = grupo["COD_USU_JEFE"]
@@ -101,21 +116,43 @@ def enviar_por_jefe(session, agrupado, enviar_correo=True):
         for sectorista in grupo["sectoristas"]:
             ordenes.extend(sectorista["ordenes"])
         try:
-            enviar_cuerpo(session, [jefe] + adicionales, ordenes)
-            if enviar_correo:
-                enviar_correo_a_usuario(correo, ordenes)
+            target_users = [jefe]
+            destinatarios_correo = [e.strip() for e in str(correo).split(",") if e.strip()]
+
+            try:
+                if int(jefe) == JEFE_ESPECIAL_CODIGO:
+                    target_users.append(JEFE_ESPECIAL_CODIGO_EXTRA)
+                    if JEFE_ESPECIAL_CORREO_EXTRA not in destinatarios_correo:
+                        destinatarios_correo.append(JEFE_ESPECIAL_CORREO_EXTRA)
+                    logger.info(
+                        "Jefe %s detectado: agregado código %s y correo %s como destinatarios extra.",
+                        jefe,
+                        JEFE_ESPECIAL_CODIGO_EXTRA,
+                        JEFE_ESPECIAL_CORREO_EXTRA,
+                    )
+            except (TypeError, ValueError):
+                pass
+
+            target_users.extend(adicionales)
+            for correo_adic in correos_adicionales:
+                correo_adic = correo_adic.strip()
+                if correo_adic and correo_adic not in destinatarios_correo:
+                    destinatarios_correo.append(correo_adic)
+
+            enviar_cuerpo(session, target_users, ordenes)
+            if enviar_correo and destinatarios_correo:
+                html = construir_tabla_html(ordenes)
+                enviar_correo_html(module_config.TITULO_MENSAJE, html, destinatarios_correo)
             exitosos += 1
             logger.info(
-                "Tabla enviada al jefe %s con %d órdenes.", jefe, len(ordenes)
+                "Tabla enviada al jefe %s con %d ordenes a %d destinatarios.",
+                jefe,
+                len(ordenes),
+                len(destinatarios_correo) if enviar_correo else 0,
             )
         except Exception as exc:
             logger.error("Error enviando tabla al jefe %s: %s", jefe, exc)
     return exitosos, len(agrupado)
-
-
-SECTORISTA_ESPECIAL_CODIGO = 48
-SECTORISTA_ESPECIAL_CODIGO_EXTRA = 856
-SECTORISTA_ESPECIAL_CORREO_EXTRA = "gzuniga@adcapricornio.com"
 
 
 def enviar_por_sectorista(session, agrupado, enviar_correo=True):
@@ -129,16 +166,6 @@ def enviar_por_sectorista(session, agrupado, enviar_correo=True):
             try:
                 target_users = [codigo]
                 destinatarios_correo = [e.strip() for e in str(correo).split(",") if e.strip()]
-                if codigo == SECTORISTA_ESPECIAL_CODIGO:
-                    target_users.append(SECTORISTA_ESPECIAL_CODIGO_EXTRA)
-                    if SECTORISTA_ESPECIAL_CORREO_EXTRA not in destinatarios_correo:
-                        destinatarios_correo.append(SECTORISTA_ESPECIAL_CORREO_EXTRA)
-                    logger.info(
-                        "Sectorista %s detectado: agregado código %s y correo %s como destinatarios extra.",
-                        codigo,
-                        SECTORISTA_ESPECIAL_CODIGO_EXTRA,
-                        SECTORISTA_ESPECIAL_CORREO_EXTRA,
-                    )
                 enviar_cuerpo(session, target_users, sectorista["ordenes"])
                 if enviar_correo and destinatarios_correo:
                     html = construir_tabla_html(sectorista["ordenes"])

@@ -30,6 +30,17 @@ class ModuleConfig:
     USUARIOS_ADICIONALES_JEFE = leer_lista(
         f"{PREFIX}USUARIOS_ADICIONALES_JEFE", ""
     )
+    USUARIOS_ADICIONALES_JEFE_CORREOS = leer_lista(
+        f"{PREFIX}USUARIOS_ADICIONALES_JEFE_CORREOS", ""
+    )
+
+    JEFE_ESPECIAL_CODIGO = int(_leer(f"{PREFIX}JEFE_ESPECIAL_CODIGO", "") or "")
+    JEFE_ESPECIAL_CODIGO_EXTRA = int(
+        _leer(f"{PREFIX}JEFE_ESPECIAL_CODIGO_EXTRA", "") or ""
+    )
+    JEFE_ESPECIAL_CORREO_EXTRA = _leer(
+        f"{PREFIX}JEFE_ESPECIAL_CORREO_EXTRA", "gzuniga@adcapricornio.com"
+    )
 
     HORARIOS_SEMANA = leer_lista(f"{PREFIX}HORARIOS_SEMANA", "10:00,16:00")
     HORARIOS_SABADO = leer_lista(f"{PREFIX}HORARIOS_SABADO", "10:00")
